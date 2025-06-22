@@ -209,25 +209,31 @@ fn run_demo() {
 fn create_simulation_environment() -> (Vec<Vec<Cell>>, Vec<Robot>) {
     println!("{}", "=== Génération de l'environnement ===".bright_yellow());
 
-    // Carte plus petite et moins dense pour la lisibilité
-    let map_generator = MapGenerator::new(42, 30, 15); // 30x15 au lieu de 50x30
+    // Carte VRAIMENT plus large pour utiliser tout l'écran
+    let map_generator = MapGenerator::new(42, 80, 20); // 80x20 pour utiliser toute la largeur
     let game_map = map_generator.generate();
     println!("✅ Carte générée: {}x{}", game_map[0].len(), game_map.len());
 
-    // Moins de robots pour plus de clarté
+    // Plus de robots bien répartis sur la grande largeur
     let mut robots = Vec::new();
 
-    // 3 explorateurs
-    robots.push(Robot::new(1, Position::new(2, 2), RobotBehavior::Explorateur));
-    robots.push(Robot::new(2, Position::new(8, 3), RobotBehavior::Explorateur));
-    robots.push(Robot::new(3, Position::new(15, 5), RobotBehavior::Explorateur));
+    // Explorateurs - très bien répartis
+    robots.push(Robot::new(1, Position::new(5, 2), RobotBehavior::Explorateur));
+    robots.push(Robot::new(2, Position::new(20, 3), RobotBehavior::Explorateur));
+    robots.push(Robot::new(3, Position::new(40, 5), RobotBehavior::Explorateur));
+    robots.push(Robot::new(4, Position::new(60, 2), RobotBehavior::Explorateur));
+    robots.push(Robot::new(5, Position::new(75, 7), RobotBehavior::Explorateur));
 
-    // 2 collecteurs
-    robots.push(Robot::new(4, Position::new(5, 7), RobotBehavior::Collecteur));
-    robots.push(Robot::new(5, Position::new(12, 4), RobotBehavior::Collecteur));
+    // Collecteurs - bien espacés
+    robots.push(Robot::new(6, Position::new(10, 8), RobotBehavior::Collecteur));
+    robots.push(Robot::new(7, Position::new(30, 4), RobotBehavior::Collecteur));
+    robots.push(Robot::new(8, Position::new(50, 9), RobotBehavior::Collecteur));
+    robots.push(Robot::new(9, Position::new(70, 6), RobotBehavior::Collecteur));
 
-    // 1 scientifique
-    robots.push(Robot::new(6, Position::new(18, 6), RobotBehavior::Scientifique));
+    // Scientifiques - dans différentes zones
+    robots.push(Robot::new(10, Position::new(15, 12), RobotBehavior::Scientifique));
+    robots.push(Robot::new(11, Position::new(45, 8), RobotBehavior::Scientifique));
+    robots.push(Robot::new(12, Position::new(65, 15), RobotBehavior::Scientifique));
 
     println!("✅ {} robots créés avec différents comportements", robots.len());
 
@@ -237,4 +243,4 @@ fn create_simulation_environment() -> (Vec<Vec<Cell>>, Vec<Robot>) {
     }
 
     (game_map, robots)
-}2
+}

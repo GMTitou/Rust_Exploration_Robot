@@ -26,7 +26,7 @@ impl GuiEngine {
             height,
             last_update: Instant::now(),
             paused: false,
-            speed: 3000, // 3 secondes par défaut au lieu de 0.5
+            speed: 4000, // 4 secondes par défaut pour laisser le temps de voir
         }
     }
 
@@ -39,8 +39,8 @@ impl GuiEngine {
         let mut auto_mode = true;
 
         loop {
-            // Gestion des événements clavier
-            if event::poll(Duration::from_millis(50))? {
+            // Gestion des événements clavier - check moins souvent pour réduire le scintillement
+            if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
                         match key.code {
@@ -93,8 +93,7 @@ impl GuiEngine {
     }
 
     fn draw_interface(&self, simulation: &crate::simulation::SimulationEngine, turn: usize, auto_mode: bool) -> io::Result<()> {
-        // Effacer l'écran
-        execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
+        // Effacer seulement la zone nécessaire au lieu de tout l'écran
         execute!(stdout(), cursor::MoveTo(0, 0))?;
 
         // En-tête avec bordure
@@ -108,6 +107,9 @@ impl GuiEngine {
 
         // Contrôles
         self.draw_controls()?;
+
+        // Effacer le reste de l'écran sous le contenu
+        execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown))?;
 
         stdout().flush()?;
         Ok(())
@@ -147,10 +149,14 @@ impl GuiEngine {
             robot_positions.insert(robot.position, robot);
         }
 
-        // En-tête simplifié avec coordonnées tous les 10
+        // En-tête avec coordonnées tous les 10 caractères pour carte large
         execute!(stdout(), Print("     "))?;
         for x in (0..width).step_by(10) {
-            execute!(stdout(), SetForegroundColor(Color::DarkGrey), Print(&format!("{:<10}", x)), ResetColor)?;
+            if x == 0 {
+                execute!(stdout(), SetForegroundColor(Color::DarkGrey), Print(&format!("{:<10}", x)), ResetColor)?;
+            } else {
+                execute!(stdout(), SetForegroundColor(Color::DarkGrey), Print(&format!("{:<10}", x)), ResetColor)?;
+            }
         }
         execute!(stdout(), cursor::MoveToNextLine(1))?;
 
@@ -244,26 +250,43 @@ impl GuiEngine {
         execute!(stdout(), SetForegroundColor(Color::Cyan), Print("═══ ÉTAT DES ROBOTS ═══"), ResetColor)?;
         execute!(stdout(), cursor::MoveToNextLine(1))?;
 
-        for (i, robot) in robots.iter().enumerate() {
-            if i >= 8 { break; } // Limiter l'affichage
+        // Afficher les robots sur 4 colonnes pour économiser l'espace avec plus de robots
+        let robots_per_row = 4;
+        for chunk in robots.chunks(robots_per_row) {
+            for (i, robot) in chunk.iter().enumerate() {
+                let total_resources: u32 = robot.inventory.values().sum();
+                let energy_bar = self.create_simple_energy_bar(robot.energy);
 
-            let total_resources: u32 = robot.inventory.values().sum();
-            let energy_bar = self.create_energy_bar(robot.energy);
+                let (color, behavior_str) = match robot.behavior {
+                    crate::RobotBehavior::Explorateur => (Color::Green, "E"),
+                    crate::RobotBehavior::Collecteur => (Color::Yellow, "C"),
+                    crate::RobotBehavior::Scientifique => (Color::Blue, "S"),
+                };
 
-            let (color, behavior_str) = match robot.behavior {
-                crate::RobotBehavior::Explorateur => (Color::Green, "EXP"),
-                crate::RobotBehavior::Collecteur => (Color::Yellow, "COL"),
-                crate::RobotBehavior::Scientifique => (Color::Blue, "SCI"),
-            };
+                let stats = format!("R{:2}[{}]({:2},{:2}){}R:{}",
+                                    robot.id, behavior_str, robot.position.x, robot.position.y, energy_bar, total_resources);
 
-            let stats = format!("Robot {} [{}] Pos({:2},{:2}) {} Res:{}",
-                                robot.id, behavior_str, robot.position.x, robot.position.y, energy_bar, total_resources);
+                execute!(stdout(), SetForegroundColor(color), Print(&format!("{:<22}", stats)), ResetColor)?;
 
-            execute!(stdout(), SetForegroundColor(color), Print(&stats), ResetColor)?;
+                // Espace entre les colonnes
+                if i < chunk.len() - 1 {
+                    execute!(stdout(), Print(" "))?;
+                }
+            }
             execute!(stdout(), cursor::MoveToNextLine(1))?;
         }
 
         Ok(())
+    }
+
+    fn create_simple_energy_bar(&self, energy: u32) -> String {
+        let bar_length = 5; // Plus court pour économiser l'espace
+        let filled = (energy * bar_length / 100).min(bar_length);
+        let empty = bar_length - filled;
+
+        format!("[{}{}]",
+                "█".repeat(filled as usize),
+                "░".repeat(empty as usize))
     }
 
     fn create_energy_bar(&self, energy: u32) -> String {
@@ -282,50 +305,46 @@ impl GuiEngine {
         execute!(stdout(), SetForegroundColor(Color::Yellow), Print("═══ LÉGENDE ═══"), ResetColor)?;
         execute!(stdout(), cursor::MoveToNextLine(1))?;
 
-        // Légende des robots
+        // Légende des robots sur une ligne
         execute!(stdout(), 
             SetBackgroundColor(Color::Green), SetForegroundColor(Color::Black), Print("E"), ResetColor,
-            Print(" Explorateur  "),
+            Print(" Explorateur │ "),
             SetBackgroundColor(Color::Yellow), SetForegroundColor(Color::Black), Print("C"), ResetColor,
-            Print(" Collecteur  "),
+            Print(" Collecteur │ "),
             SetBackgroundColor(Color::Blue), SetForegroundColor(Color::White), Print("S"), ResetColor,
             Print(" Scientifique")
         )?;
         execute!(stdout(), cursor::MoveToNextLine(1))?;
 
-        // Légende simplifiée des éléments
+        // Terrains sur une ligne
         execute!(stdout(), 
-            SetForegroundColor(Color::Red), Print("#"), ResetColor, Print(" Obstacle  "),
-            SetForegroundColor(Color::DarkGrey), Print("^"), ResetColor, Print(" Montagne  "),
-            SetForegroundColor(Color::Yellow), Print("o"), ResetColor, Print(" Cratère  "),
+            SetForegroundColor(Color::Red), Print("#"), ResetColor, Print(" Obstacle │ "),
+            SetForegroundColor(Color::DarkGrey), Print("^"), ResetColor, Print(" Montagne │ "),
+            SetForegroundColor(Color::Yellow), Print("o"), ResetColor, Print(" Cratère │ "),
             SetForegroundColor(Color::DarkGrey), Print("·"), ResetColor, Print(" Exploré")
         )?;
         execute!(stdout(), cursor::MoveToNextLine(1))?;
 
-        // Ressources importantes uniquement
+        // Ressources sur une ligne
         execute!(stdout(), 
-            SetForegroundColor(Color::Cyan), Print("E"), ResetColor, Print(" Énergie(>30)  "),
-            SetForegroundColor(Color::Red), Print("M"), ResetColor, Print(" Mineraux(>40)  "),
+            SetForegroundColor(Color::Cyan), Print("E"), ResetColor, Print(" Énergie(>30) │ "),
+            SetForegroundColor(Color::Red), Print("M"), ResetColor, Print(" Mineraux(>40) │ "),
             SetForegroundColor(Color::Magenta), Print("*"), ResetColor, Print(" Site scientifique")
         )?;
-        execute!(stdout(), cursor::MoveToNextLine(2))?;
+        execute!(stdout(), cursor::MoveToNextLine(1))?;
 
         execute!(stdout(), SetForegroundColor(Color::Cyan), Print("═══ CONTRÔLES ═══"), ResetColor)?;
         execute!(stdout(), cursor::MoveToNextLine(1))?;
 
-        let controls = [
-            "[ESPACE] Pause/Play",
-            "[1-5] Vitesse: 1s/2s/3s/5s/0.5s",
-            "[+/-] Ajuster vitesse",
-            "[A] Mode Auto/Manuel",
-            "[ENTER] Tour suivant (pause)",
-            "[Q/ESC] Quitter"
-        ];
-
-        for control in &controls {
-            execute!(stdout(), SetForegroundColor(Color::White), Print(control), ResetColor)?;
-            execute!(stdout(), cursor::MoveToNextLine(1))?;
-        }
+        // Contrôles sur 2 lignes pour économiser l'espace
+        execute!(stdout(), 
+            Print("[ESPACE] Pause │ [1-6] Vitesse:1s/2s/3s/5s/0.5s/10s │ [P] Pause auto │ [A] Auto/Manuel")
+        )?;
+        execute!(stdout(), cursor::MoveToNextLine(1))?;
+        execute!(stdout(), 
+            Print("[ENTER] Tour suivant │ [+/-] Ajuster │ [Q/ESC] Quitter")
+        )?;
+        execute!(stdout(), cursor::MoveToNextLine(1))?;
 
         Ok(())
     }
