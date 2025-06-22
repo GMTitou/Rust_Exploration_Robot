@@ -1,7 +1,11 @@
-// src/simulation/engine.rs - Moteur de simulation principal
+// src/simulation/engine.rs - Moteur de simulation avec interface visuelle
 use crate::{Cell, Position};
 use crate::robot::{Robot, RobotAction, BehaviorEngine};
 use colored::Colorize;
+use std::io::{self, Write};
+use std::thread;
+use std::time::Duration;
+use crate::display::DisplayEngine;
 
 pub struct SimulationEngine {
     pub map: Vec<Vec<Cell>>,
@@ -25,6 +29,110 @@ impl SimulationEngine {
         }
     }
 
+    /// Lance la simulation interactive
+    pub fn run_interactive(&mut self) {
+        println!("{}", "🎮 Mode interactif activé !".bright_green().bold());
+        println!("{}", "Utilisez ENTER pour avancer tour par tour, 'q' pour quitter".bright_yellow());
+
+        loop {
+            self.display_current_states();
+            self.display_controls();
+
+            print!("\n> ");
+            io::stdout().flush().unwrap();
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            let command = input.trim().to_lowercase();
+
+            match command.as_str() {
+                "q" | "quit" => {
+                    println!("{}", "🏁 Simulation arrêtée par l'utilisateur".bright_red());
+                    break;
+                },
+                "r" | "rapport" => {
+                    self.print_detailed_report();
+                },
+                "s" | "auto" => {
+                    self.run_auto_mode();
+                },
+                "" => {
+                    // Exécuter un tour
+                    self.execute_turn();
+                    self.turn += 1;
+                },
+                _ => {
+                    println!("{}", "Commande non reconnue. Utilisez ENTER, 'q', 'r', ou 's'".bright_red());
+                }
+            }
+        }
+
+        self.print_final_report();
+    }
+
+    /// Affiche l'état actuel de la simulation
+    fn display_current_states(&self) {
+        use crate::display::DisplayEngine;
+        DisplayEngine::clear_screen();
+        DisplayEngine::display_header(self.turn);
+        DisplayEngine::display_map(&self.map, &self.robots);
+        DisplayEngine::display_robot_stats(&self.robots);
+        // Statistiques rapides
+        let explored_cells = self.map.iter()
+            .flat_map(|row| row.iter())
+            .filter(|cell| cell.explored)
+            .count();
+        let total_cells = self.width * self.height;
+        let exploration_percentage = (explored_cells as f32 / total_cells as f32) * 100.0;
+
+        println!("\n📊 Exploration: {:.1}% ({}/{})", exploration_percentage, explored_cells, total_cells);
+    }
+
+    /// Affiche les contrôles
+    fn display_controls(&self) {
+        use crate::display::DisplayEngine;
+        DisplayEngine::display_controls();
+    }
+
+    /// Mode automatique rapide
+    pub fn run_auto_mode(&mut self) {
+        println!("{}", "🚀 Mode automatique lancé ! (Ctrl+C pour arrêter)".bright_green().bold());
+
+        loop {
+            self.display_current_states();
+            self.execute_turn();
+            self.turn += 1;
+
+            // Pause entre les tours
+            thread::sleep(Duration::from_millis(100)); // 10 tours/seconde
+
+            // Arrêter après 1000 tours pour éviter une boucle infinie
+            if self.turn >= 1000 {
+                println!("{}", "⚠️  Limite de 1000 tours atteinte - arrêt automatique".bright_yellow());
+                break;
+            }
+        }
+    }
+
+    /// Affiche l'état actuel de la simulation
+    fn display_current_state(&self) {
+        DisplayEngine::clear_screen();
+        DisplayEngine::display_header(self.turn);
+        DisplayEngine::display_map(&self.map, &self.robots);
+        DisplayEngine::display_robot_stats(&self.robots);
+
+        // Statistiques rapides
+        let explored_cells = self.map.iter()
+            .flat_map(|row| row.iter())
+            .filter(|cell| cell.explored)
+            .count();
+        let total_cells = self.width * self.height;
+        let exploration_percentage = (explored_cells as f32 / total_cells as f32) * 100.0;
+
+        println!("\n📊 Exploration: {:.1}% ({}/{})", exploration_percentage, explored_cells, total_cells);
+    }
+
+    /// Lance la simulation classique (sans interface)
     pub fn run(&mut self, max_turns: usize) {
         println!("{}", format!("🎮 Démarrage de la simulation ({} tours max)", max_turns).bright_green());
 
@@ -64,7 +172,15 @@ impl SimulationEngine {
             RobotAction::Move(new_position) => {
                 if self.is_valid_position(new_position) &&
                     self.map[new_position.y][new_position.x].is_passable() {
+                    // Libérer l'ancienne position
+                    let old_pos = self.robots[robot_index].position;
+                    self.map[old_pos.y][old_pos.x].occupied_by = None;
+
+                    // Déplacer le robot
                     self.robots[robot_index].move_to(new_position);
+
+                    // Occuper la nouvelle position
+                    self.map[new_position.y][new_position.x].occupied_by = Some(robot_index);
                 }
             },
             RobotAction::Collect => {
@@ -93,7 +209,9 @@ impl SimulationEngine {
                 self.robots[robot_index].energy = self.robots[robot_index].energy.saturating_sub(2);
             },
             RobotAction::Wait => {
-                // Ne rien faire
+                // Ne rien faire, mais récupérer un peu d'énergie
+                let robot = &mut self.robots[robot_index];
+                robot.energy = (robot.energy + 1).min(100);
             }
         }
     }
@@ -119,6 +237,46 @@ impl SimulationEngine {
         }
     }
 
+    fn print_detailed_report(&self) {
+        DisplayEngine::clear_screen();
+        println!("{}", "📋 RAPPORT DÉTAILLÉ".bright_yellow().bold());
+        println!("{}", "====================".bright_yellow());
+
+        // Statistiques globales
+        let mut total_energy_collected = 0;
+        let mut total_minerals_collected = 0;
+        let mut total_scientific_data = 0;
+
+        for robot in &self.robots {
+            total_energy_collected += robot.inventory.get(&crate::ResourceType::Energie).unwrap_or(&0);
+            total_minerals_collected += robot.inventory.get(&crate::ResourceType::Mineraux).unwrap_or(&0);
+            total_scientific_data += robot.inventory.get(&crate::ResourceType::LieuxInteret).unwrap_or(&0);
+        }
+
+        println!("⚡ Énergie collectée: {}", total_energy_collected);
+        println!("🪨 Mineraux collectés: {}", total_minerals_collected);
+        println!("🔬 Données scientifiques: {}", total_scientific_data);
+        println!("🔄 Tours exécutés: {}", self.turn);
+
+        let explored_cells = self.map.iter()
+            .flat_map(|row| row.iter())
+            .filter(|cell| cell.explored)
+            .count();
+
+        let total_cells = self.width * self.height;
+        let exploration_percentage = (explored_cells as f32 / total_cells as f32) * 100.0;
+
+        println!("🗺️  Exploration: {:.1}% ({}/{})", exploration_percentage, explored_cells, total_cells);
+
+        // Détail par robot
+        println!("\n{}", "📋 Détail par robot:".bright_cyan());
+        DisplayEngine::display_robot_stats(&self.robots);
+
+        println!("\n{}", "Appuyez sur ENTER pour continuer...".bright_white());
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+    }
+
     fn print_final_report(&self) {
         println!("\n{}", "📋 RAPPORT FINAL".bright_yellow().bold());
         println!("{}", "================".bright_yellow());
@@ -136,7 +294,7 @@ impl SimulationEngine {
         println!("⚡ Énergie collectée: {}", total_energy_collected);
         println!("🪨 Mineraux collectés: {}", total_minerals_collected);
         println!("🔬 Données scientifiques: {}", total_scientific_data);
-        println!("🔄 Tours exécutés: {}", self.turn + 1);
+        println!("🔄 Tours exécutés: {}", self.turn);
 
         let explored_cells = self.map.iter()
             .flat_map(|row| row.iter())
@@ -147,5 +305,7 @@ impl SimulationEngine {
         let exploration_percentage = (explored_cells as f32 / total_cells as f32) * 100.0;
 
         println!("🗺️  Exploration: {:.1}% ({}/{})", exploration_percentage, explored_cells, total_cells);
+
+        println!("\n{}", "🎯 Merci d'avoir utilisé EREEA !".bright_green().bold());
     }
 }

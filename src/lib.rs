@@ -19,7 +19,7 @@ pub enum ResourceType {
 }
 
 // Position sur la carte
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)] // Ajout de Hash
 pub struct Position {
     pub x: usize,
     pub y: usize,
