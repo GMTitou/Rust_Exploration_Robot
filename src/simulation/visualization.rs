@@ -104,10 +104,9 @@ impl MapVisualizer {
             format!(" | Taille: {}x{}", app.map.width, app.map.height)
         };
 
-        let title = format!("Carte de Simulation Nova{}", scroll_info);
         let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
+            .title(" ")
+            .borders(Borders::empty())
             .border_style(Style::default().fg(Color::White))
             .style(Style::default().fg(Color::White));
 
@@ -153,7 +152,7 @@ impl MapVisualizer {
             Line::from(vec![
                 Span::styled("S", Style::default().fg(Color::White)),
                 Span::raw("=Scientifique "),
-                Span::styled("@", Style::default().fg(Color::White)),
+                Span::styled("🏠", Style::default().fg(Color::White)),
                 Span::raw("=Station"),
             ]),
         ];
@@ -225,7 +224,7 @@ impl MapVisualizer {
         let station_pos = (map.width / 2, map.height / 2);
 
         if (x, y) == station_pos {
-            return ('@', Color::White);
+            return ('🏠', Color::White);
         }
 
         for robot in robots {
@@ -288,7 +287,7 @@ impl<'a> App<'a> {
 
     pub fn get_robot_stats(&self) -> (usize, usize, usize) {
         let mut explorers = 0;
-        let mut harvesters = 0;
+        let harvesters = 0;
         let mut scientists = 0;
 
         for robot in self.robots {
