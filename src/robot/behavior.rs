@@ -1,89 +1,207 @@
-// src/robot/behavior.rs - Comportements des robots améliorés
-use crate::Position;
+use super::robot::RobotType;
+use crate::map::{Map, TerrainType};
+use rand::Rng;
 
 #[derive(Debug, Clone)]
-pub enum RobotAction {
-    Move(Position),
-    Collect,
-    Analyze,
-    Communicate(Vec<usize>), // IDs des robots à contacter
-    Wait,
+pub enum BehaviorState {
+    Exploring,
+    Analyzing,
+    Collecting,
+    Returning,
+    Waiting,
 }
 
-pub struct BehaviorEngine;
+#[derive(Debug)]
+pub struct RobotBehavior {
+    state: BehaviorState,
+    target: Option<(usize, usize)>,
+    _robot_type: RobotType,
+    step_counter: u32,
+    action_counter: u32, // Compteur pour limiter les actions répétitives
+}
 
-impl BehaviorEngine {
-    pub fn decide_action(
-        robot_behavior: crate::RobotBehavior,
-        current_position: Position,
-        energy: u32,
-        inventory_full: bool,
-    ) -> RobotAction {
-        match robot_behavior {
-            crate::RobotBehavior::Explorateur => {
-                if energy < 10 {
-                    RobotAction::Wait // Récupérer de l'énergie
-                } else {
-                    // Mouvement intelligent : exploration en spirale
-                    let directions = [
-                        (1, 0), (0, 1), (-1, 0), (0, -1), // Cardinal
-                        (1, 1), (-1, 1), (-1, -1), (1, -1) // Diagonal
-                    ];
+impl RobotBehavior {
+    pub fn new(robot_type: RobotType) -> Self {
+        RobotBehavior {
+            state: BehaviorState::Exploring,
+            target: None,
+            _robot_type: robot_type,
+            step_counter: 0,
+            action_counter: 0,
+        }
+    }
 
-                    let choice = (current_position.x + current_position.y + energy as usize) % directions.len();
-                    let (dx, dy) = directions[choice];
+    pub fn update_robot_state(&mut self, x: &mut usize, y: &mut usize, energy: &mut u32, map: &mut Map, robot_type: &RobotType, robot_id: u32) {
+        self.step_counter += 1;
 
-                    let new_x = (current_position.x as i32 + dx).max(0) as usize;
-                    let new_y = (current_position.y as i32 + dy).max(0) as usize;
+        match self.state {
+            BehaviorState::Exploring => self.explore_behavior(x, y, energy, map, robot_type, robot_id),
+            BehaviorState::Analyzing => self.analyze_behavior(x, y, energy, map, robot_id),
+            BehaviorState::Collecting => self.collect_behavior(x, y, energy, map, robot_id),
+            BehaviorState::Returning => self.return_behavior(),
+            BehaviorState::Waiting => self.wait_behavior(energy),
+        }
+    }
 
-                    RobotAction::Move(Position::new(new_x, new_y))
+    fn explore_behavior(&mut self, x: &mut usize, y: &mut usize, energy: &mut u32, map: &mut Map, robot_type: &RobotType, robot_id: u32) {
+        // Chercher des points d'intérêt à proximité
+        let discoveries = self.scan_area(*x, *y, map, 3);
+
+        if !discoveries.is_empty() && self.target.is_none() {
+            // Aller vers le point d'intérêt le plus proche
+            let (target_x, target_y, _) = &discoveries[0];
+            self.target = Some((*target_x, *target_y));
+        }
+
+        if let Some((target_x, target_y)) = self.target {
+            // Si on a atteint la cible
+            if *x == target_x && *y == target_y {
+                // Changer de comportement selon le type de robot
+                match robot_type {
+                    RobotType::Analyzer => {
+                        self.state = BehaviorState::Analyzing;
+                        self.action_counter = 0;
+                    },
+                    RobotType::Harvester => {
+                        self.state = BehaviorState::Collecting;
+                        self.action_counter = 0;
+                    },
+                    _ => {
+                        // Explorer et Scout continuent d'explorer vers une nouvelle cible
+                        self.target = None;
+                        self.random_move(x, y, energy, map);
+                    }
                 }
-            },
-            crate::RobotBehavior::Collecteur => {
-                if inventory_full {
-                    // Retourner vers le point de départ pour décharger
-                    if current_position.x > 1 || current_position.y > 1 {
-                        let new_x = if current_position.x > 1 { current_position.x - 1 } else { current_position.x };
-                        let new_y = if current_position.y > 1 { current_position.y - 1 } else { current_position.y };
-                        RobotAction::Move(Position::new(new_x, new_y))
-                    } else {
-                        RobotAction::Wait
-                    }
-                } else if energy > 5 {
-                    // Alterner entre collecte et mouvement
-                    if energy % 3 == 0 {
-                        RobotAction::Collect
-                    } else {
-                        // Mouvement de recherche de ressources
-                        let directions = [(1, 0), (0, 1), (-1, 0), (0, -1)];
-                        let choice = (energy as usize / 3) % directions.len();
-                        let (dx, dy) = directions[choice];
+            } else {
+                // Se déplacer vers la cible
+                self.move_towards_target(x, y, energy, map);
+            }
+        } else {
+            // Mouvement aléatoire pour exploration
+            self.random_move(x, y, energy, map);
+        }
+    }
 
-                        let new_x = (current_position.x as i32 + dx).max(0) as usize;
-                        let new_y = (current_position.y as i32 + dy).max(0) as usize;
+    fn analyze_behavior(&mut self, x: &mut usize, y: &mut usize, energy: &mut u32, map: &mut Map, robot_id: u32) {
+        self.action_counter += 1;
 
-                        RobotAction::Move(Position::new(new_x, new_y))
+        if let Some(cell) = map.get_cell(*x, *y) {
+            match cell.terrain {
+                TerrainType::Interest | TerrainType::Mineral => {
+                    // Analyser pendant quelques étapes seulement
+                    if self.action_counter % 3 == 0 && self.action_counter < 10 {
+                        println!("🔬 Robot {} analyse la zone ({},{})", robot_id, x, y);
+                        *energy = energy.saturating_sub(3);
                     }
-                } else {
-                    RobotAction::Wait
                 }
-            },
-            crate::RobotBehavior::Scientifique => {
-                if energy > 8 {
-                    // Alterner entre analyse et mouvement vers zones d'intérêt
-                    if energy % 2 == 0 {
-                        RobotAction::Analyze
-                    } else {
-                        // Mouvement méthodique pour l'analyse
-                        let new_x = if current_position.x < 20 { current_position.x + 1 } else { 1 };
-                        let new_y = if new_x == 1 && current_position.y < 15 { current_position.y + 1 } else { current_position.y };
+                _ => {}
+            }
+        }
 
-                        RobotAction::Move(Position::new(new_x, new_y))
+        // Retourner à l'exploration après analyse limitée
+        if self.action_counter >= 8 {
+            self.state = BehaviorState::Exploring;
+            self.target = None;
+            self.action_counter = 0;
+        }
+    }
+
+    fn collect_behavior(&mut self, x: &mut usize, y: &mut usize, energy: &mut u32, map: &mut Map, robot_id: u32) {
+        self.action_counter += 1;
+
+        if let Some(cell) = map.get_cell(*x, *y) {
+            match cell.terrain {
+                TerrainType::Mineral => {
+                    if self.action_counter % 2 == 0 && self.action_counter < 6 {
+                        println!("⛏️ Robot {} collecte des minéraux à ({},{})", robot_id, x, y);
+                        *energy = energy.saturating_sub(4);
+                        map.deplete_resource(*x, *y); // Épuiser la ressource
                     }
-                } else {
-                    RobotAction::Wait
+                }
+                TerrainType::Energy => {
+                    if self.action_counter % 2 == 0 && self.action_counter < 4 {
+                        println!("🔋 Robot {} collecte de l'énergie à ({},{})", robot_id, x, y);
+                        *energy = (*energy + 5).min(100);
+                        map.deplete_resource(*x, *y); // Épuiser la ressource
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Retourner à l'exploration après collecte limitée
+        if self.action_counter >= 5 {
+            self.state = BehaviorState::Exploring;
+            self.target = None;
+            self.action_counter = 0;
+        }
+    }
+
+    fn return_behavior(&mut self) {
+        // Comportement de retour vers la base (non implémenté complètement)
+        self.state = BehaviorState::Exploring;
+    }
+
+    fn wait_behavior(&mut self, energy: &mut u32) {
+        // Attendre et récupérer de l'énergie
+        *energy = (*energy + 1).min(100);
+
+        if self.step_counter % 5 == 0 {
+            self.state = BehaviorState::Exploring;
+        }
+    }
+
+    fn move_towards_target(&self, x: &mut usize, y: &mut usize, energy: &mut u32, map: &mut Map) {
+        if let Some((target_x, target_y)) = self.target {
+            let dx = if target_x > *x { 1 } else if target_x < *x { -1 } else { 0 };
+            let dy = if target_y > *y { 1 } else if target_y < *y { -1 } else { 0 };
+
+            let new_x = (*x as i32 + dx).max(0) as usize;
+            let new_y = (*y as i32 + dy).max(0) as usize;
+
+            if map.is_passable(new_x, new_y) && *energy > 2 {
+                *x = new_x;
+                *y = new_y;
+                *energy = energy.saturating_sub(1); // Coût réduit du mouvement
+            }
+        }
+    }
+
+    fn random_move(&self, x: &mut usize, y: &mut usize, energy: &mut u32, map: &mut Map) {
+        let mut rng = rand::thread_rng();
+        let directions = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)];
+        let (dx, dy) = directions[rng.gen_range(0..directions.len())];
+
+        let new_x = (*x as i32 + dx).max(0) as usize;
+        let new_y = (*y as i32 + dy).max(0) as usize;
+
+        if map.is_passable(new_x, new_y) && *energy > 1 {
+            *x = new_x;
+            *y = new_y;
+            *energy = energy.saturating_sub(1); // Coût réduit du mouvement
+        }
+    }
+
+    fn scan_area(&self, x: usize, y: usize, map: &Map, range: usize) -> Vec<(usize, usize, String)> {
+        let mut discoveries = Vec::new();
+
+        for dy in -(range as i32)..=(range as i32) {
+            for dx in -(range as i32)..=(range as i32) {
+                let scan_x = (x as i32 + dx).max(0) as usize;
+                let scan_y = (y as i32 + dy).max(0) as usize;
+
+                if let Some(cell) = map.get_cell(scan_x, scan_y) {
+                    if cell.terrain.exploration_value() > 0 && !cell.depleted {
+                        discoveries.push((scan_x, scan_y, format!("{:?}", cell.terrain)));
+                    }
                 }
             }
         }
+
+        discoveries
+    }
+
+    pub fn get_current_state(&self) -> &BehaviorState {
+        &self.state
     }
 }

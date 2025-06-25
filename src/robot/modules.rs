@@ -1,53 +1,60 @@
-// src/robot/modules.rs - Fonctions utilitaires pour les modules
+use super::robot::RobotType;
 
-/// Coût énergétique d'utilisation du module
-pub fn module_energy_cost(module: &final_project::RobotModule) -> u32 {
-    match module {
-        final_project::RobotModule::Deplacement => 1,
-        final_project::RobotModule::Communication => 2,
-        final_project::RobotModule::AnalyseChimique => 5,
-        final_project::RobotModule::ImageHauteResolution => 3,
-        final_project::RobotModule::CollecteEnergie => 2,
-        final_project::RobotModule::CollecteMineraux => 4,
-        final_project::RobotModule::CollecteDonnees => 3,
-    }
+#[derive(Debug, Clone)]
+pub struct RobotModule {
+    pub name: String,
+    pub energy_cost: u32,
+    pub efficiency: f32,
 }
 
-/// Description du module
-pub fn module_description(module: &final_project::RobotModule) -> &'static str {
-    match module {
-        final_project::RobotModule::Deplacement => "Permet au robot de se déplacer sur le terrain",
-        final_project::RobotModule::Communication => "Communication avec d'autres robots",
-        final_project::RobotModule::AnalyseChimique => "Analyse la composition chimique des échantillons",
-        final_project::RobotModule::ImageHauteResolution => "Capture d'images détaillées du terrain",
-        final_project::RobotModule::CollecteEnergie => "Collecte des sources d'énergie",
-        final_project::RobotModule::CollecteMineraux => "Extraction et collecte de mineraux",
-        final_project::RobotModule::CollecteDonnees => "Collecte de données scientifiques",
+impl RobotModule {
+    pub fn new(name: String, energy_cost: u32, efficiency: f32) -> Self {
+        RobotModule {
+            name,
+            energy_cost,
+            efficiency,
+        }
     }
-}
 
-/// Efficacité du module (0.0 à 1.0)
-pub fn module_efficiency(module: &final_project::RobotModule) -> f32 {
-    match module {
-        final_project::RobotModule::Deplacement => 0.9,
-        final_project::RobotModule::Communication => 0.95,
-        final_project::RobotModule::AnalyseChimique => 0.8,
-        final_project::RobotModule::ImageHauteResolution => 0.85,
-        final_project::RobotModule::CollecteEnergie => 0.7,
-        final_project::RobotModule::CollecteMineraux => 0.75,
-        final_project::RobotModule::CollecteDonnees => 0.9,
+    pub fn get_modules_for_type(robot_type: &RobotType) -> Vec<RobotModule> {
+        match robot_type {
+            RobotType::Explorer => vec![
+                RobotModule::new("Cartographie".to_string(), 3, 0.8),
+                RobotModule::new("Communication".to_string(), 2, 0.9),
+                RobotModule::new("Navigation".to_string(), 1, 0.95),
+            ],
+            RobotType::Analyzer => vec![
+                RobotModule::new("Spectromètre".to_string(), 8, 0.9),
+                RobotModule::new("Microscope".to_string(), 5, 0.85),
+                RobotModule::new("Chimie".to_string(), 6, 0.8),
+            ],
+            RobotType::Harvester => vec![
+                RobotModule::new("Forage".to_string(), 10, 0.75),
+                RobotModule::new("Stockage".to_string(), 2, 0.95),
+                RobotModule::new("Raffinage".to_string(), 7, 0.7),
+            ],
+            RobotType::Scout => vec![
+                RobotModule::new("Vitesse".to_string(), 4, 0.9),
+                RobotModule::new("Détection".to_string(), 3, 0.85),
+                RobotModule::new("Stealth".to_string(), 5, 0.8),
+            ],
+        }
     }
-}
 
-/// Portée d'action du module
-pub fn module_range(module: &final_project::RobotModule) -> usize {
-    match module {
-        final_project::RobotModule::Deplacement => 1,
-        final_project::RobotModule::Communication => 10,
-        final_project::RobotModule::AnalyseChimique => 1,
-        final_project::RobotModule::ImageHauteResolution => 3,
-        final_project::RobotModule::CollecteEnergie => 1,
-        final_project::RobotModule::CollecteMineraux => 1,
-        final_project::RobotModule::CollecteDonnees => 2,
+    pub fn activate(&self, current_energy: u32) -> Option<u32> {
+        if current_energy >= self.energy_cost {
+            Some(current_energy - self.energy_cost)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_efficiency_bonus(&self) -> f32 {
+        self.efficiency
+    }
+
+    pub fn is_compatible_with(&self, robot_type: &RobotType) -> bool {
+        let modules = Self::get_modules_for_type(robot_type);
+        modules.iter().any(|m| m.name == self.name)
     }
 }
