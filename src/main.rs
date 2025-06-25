@@ -1,338 +1,135 @@
-use final_project::{Map, Robot, RobotType, SimulationEngine};
-use macroquad::prelude::*;
+mod config;
+mod simulation;
 
-struct GameState {
-    engine: SimulationEngine,
-    robots: Vec<Robot>,
-    step: u32,
-    running: bool,
-    speed: f32,
-    last_update: f64,
-    cell_size: f32,
-    map_offset_x: f32,
-    map_offset_y: f32,
-    selected_robot: Option<usize>,
-    show_energy: bool,
+use crate::simulation::entities::{Map, Station};
+use crate::simulation::robot_ai::robot::Robot;
+use crate::simulation::robot_ai::types::RobotType;
+
+use config::Config;
+use crossterm::{
+    event::{self, Event, KeyCode},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io;
+use std::time::{Duration, Instant};
+
+#[tokio::main]
+async fn main() {
+    env_logger::init();
+
+    // Vérifier les arguments de ligne de commande
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() > 1 && args[1] == "start" {
+        // Créer une configuration par défaut
+        let config = Config::new();
+        start_simulation(config).await;
+    } else {
+        println!("Usage: cargo run start");
+        println!("Use 'cargo run start' to start the simulation");
+    }
 }
 
-impl GameState {
-    fn new() -> Self {
-        // Créer une carte plus adaptée à l'écran
-        let mut map = Map::new(70, 40);
-        map.generate_terrain();
+async fn start_simulation(config: Config) {
+    println!("Starting simulation with:");
+    println!("  Seed: {}", config.seed);
+    println!("  Map: {}x{}", config.map_width, config.map_height);
+    println!("  Robots: {}", config.robots_count);
 
-        let robots = vec![
-            Robot::new(1, RobotType::Explorer, 10, 10),
-            Robot::new(2, RobotType::Analyzer, 20, 15),
-            Robot::new(3, RobotType::Harvester, 30, 20),
-            Robot::new(4, RobotType::Scout, 40, 25),
-            Robot::new(5, RobotType::Explorer, 50, 30),
-            Robot::new(6, RobotType::Harvester, 60, 35),
-        ];
+    let mut map = Map::new(config.map_width, config.map_height, config.seed);
+    let mut station = Station::new(config.map_width / 2, config.map_height / 2);
 
-        let engine = SimulationEngine::new(map);
+    station.receive_resource(crate::simulation::entities::ResourceType::Energy, 10000);
 
-        Self {
-            engine,
-            robots,
-            step: 0,
-            running: true,
-            speed: 3.0,
-            last_update: get_time(),
-            cell_size: 10.0, // Taille plus grande des cellules
-            map_offset_x: 0.0, // Sera calculé pour centrer
-            map_offset_y: 0.0, // Sera calculé pour centrer
-            selected_robot: None,
-            show_energy: true,
-        }
+    let mut robots = Vec::new();
+    for i in 0..config.robots_count {
+        let robot_type = match i % 2 {
+            0 => RobotType::Explorer,
+            _ => RobotType::Scientist,
+        };
+
+        let station_pos = station.position();
+        let robot = Robot::new(i, robot_type, station_pos.0, station_pos.1, 100);
+        robots.push(robot);
     }
 
-    fn update(&mut self) {
-        // Calculer l'offset pour centrer la carte
-        let map_width = self.engine.map.width as f32 * self.cell_size;
-        let map_height = self.engine.map.height as f32 * self.cell_size;
-        let panel_width = 350.0;
-        let available_width = screen_width() - panel_width - 40.0;
+    let map_path = format!("map_seed_{}.json", config.seed);
+    if let Err(e) = map.save_to_file(&map_path) {
+        eprintln!("Failed to save map: {}", e);
+    } else {
+        println!("Map saved to {}", map_path);
+    }
 
-        self.map_offset_x = (available_width - map_width) / 2.0 + 20.0;
-        self.map_offset_y = (screen_height() - map_height) / 2.0 + 50.0;
+    println!("Simulation running... Press 'q' in TUI to quit");
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
-        // Contrôles
-        if is_key_pressed(KeyCode::Space) {
-            self.running = !self.running;
-        }
+    enable_raw_mode().expect("Failed to enable raw mode");
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen).expect("Failed to enter alternate screen");
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).expect("Failed to create terminal");
 
-        if is_key_pressed(KeyCode::Equal) || is_key_pressed(KeyCode::KpAdd) {
-            self.speed = (self.speed + 0.5).min(10.0);
-        }
+    let mut last_update = Instant::now();
+    let robot_start_times = schedule_robot_start_times(robots.len());
+    let result = loop {
+        if last_update.elapsed() >= Duration::from_millis(500) {
+            for (i, robot) in robots.iter_mut().enumerate() {
+                if Instant::now() >= robot_start_times[i] {
+                    let action = robot.decide_next_action(&map, &station);
 
-        if is_key_pressed(KeyCode::Minus) || is_key_pressed(KeyCode::KpSubtract) {
-            self.speed = (self.speed - 0.5).max(0.1);
-        }
-
-        if is_key_pressed(KeyCode::E) {
-            self.show_energy = !self.show_energy;
-        }
-
-        // Zoom avec molette
-        let (_x, wheel_y) = mouse_wheel();
-        if wheel_y != 0.0 {
-            self.cell_size = (self.cell_size + wheel_y * 0.5).clamp(6.0, 20.0);
-        }
-
-        // Sélection de robot
-        if is_mouse_button_pressed(MouseButton::Left) {
-            let (mouse_x, mouse_y) = mouse_position();
-            if mouse_x >= self.map_offset_x && mouse_y >= self.map_offset_y {
-                let map_x = ((mouse_x - self.map_offset_x) / self.cell_size) as usize;
-                let map_y = ((mouse_y - self.map_offset_y) / self.cell_size) as usize;
-
-                self.selected_robot = self.robots.iter().position(|robot|
-                    robot.x == map_x && robot.y == map_y
-                );
-            }
-        }
-
-        // Mise à jour de la simulation
-        if self.running {
-            let now = get_time();
-            if now - self.last_update >= 1.0 / self.speed as f64 {
-                self.step += 1;
-
-                for robot in &mut self.robots {
-                    if robot.is_operational() {
-                        robot.update(&mut self.engine.map);
+                    if let Err(e) = robot.execute_action(&mut map, &mut station, action) {
+                        eprintln!("Robot {} failed to execute action: {}", robot.id, e);
                     }
                 }
-
-                self.last_update = now;
             }
+
+            last_update = Instant::now();
         }
-    }
 
-    fn draw(&self) {
-        clear_background(Color::from_rgba(15, 15, 25, 255));
+        if let Err(e) = draw_tui(&mut terminal, &map, &robots) {
+            break Err(e);
+        }
 
-        // Titre principal
-        draw_text("🚀 EREEA - Simulation d'Exploration Spatiale", 30.0, 35.0, 28.0, WHITE);
-
-        // Barre de statut
-        let status = if self.running { "▶ EN COURS" } else { "⏸ PAUSE" };
-        let status_color = if self.running { GREEN } else { YELLOW };
-
-        draw_text(&format!("Étape: {} | {} | Vitesse: {:.1}/s | Zoom: {:.1}x",
-                           self.step, status, self.speed, self.cell_size / 10.0),
-                  30.0, 65.0, 20.0, status_color);
-
-        draw_text("Contrôles: [ESPACE] Pause | [+/-] Vitesse | [E] Énergie | [Molette] Zoom | [Clic] Sélection",
-                  30.0, 85.0, 16.0, LIGHTGRAY);
-
-        // Bordure autour de la carte
-        let border_thickness = 3.0;
-        let map_width = self.engine.map.width as f32 * self.cell_size;
-        let map_height = self.engine.map.height as f32 * self.cell_size;
-
-        draw_rectangle_lines(
-            self.map_offset_x - border_thickness,
-            self.map_offset_y - border_thickness,
-            map_width + border_thickness * 2.0,
-            map_height + border_thickness * 2.0,
-            border_thickness,
-            WHITE
-        );
-
-        // Dessiner la carte
-        for y in 0..self.engine.map.height {
-            for x in 0..self.engine.map.width {
-                let cell = &self.engine.map.cells[y][x];
-                let screen_x = self.map_offset_x + x as f32 * self.cell_size;
-                let screen_y = self.map_offset_y + y as f32 * self.cell_size;
-
-                let color = match cell.terrain {
-                    final_project::map::TerrainType::Empty => {
-                        if cell.explored {
-                            Color::from_rgba(70, 70, 80, 255)
-                        } else {
-                            Color::from_rgba(25, 25, 35, 255)
-                        }
-                    },
-                    final_project::map::TerrainType::Rock => Color::from_rgba(120, 120, 120, 255),
-                    final_project::map::TerrainType::Mineral => Color::from_rgba(100, 200, 255, 255),
-                    final_project::map::TerrainType::Energy => Color::from_rgba(255, 100, 100, 255),
-                    final_project::map::TerrainType::Interest => Color::from_rgba(255, 255, 100, 255),
-                    final_project::map::TerrainType::Obstacle => Color::from_rgba(80, 40, 20, 255),
-                };
-
-                draw_rectangle(screen_x, screen_y, self.cell_size, self.cell_size, color);
-
-                // Grille subtile
-                if self.cell_size > 8.0 {
-                    draw_rectangle_lines(screen_x, screen_y, self.cell_size, self.cell_size,
-                                         0.5, Color::from_rgba(50, 50, 50, 100));
+        if event::poll(Duration::from_millis(100)).unwrap_or(false) {
+            if let Ok(Event::Key(key)) = event::read() {
+                if key.code == KeyCode::Char('q') {
+                    break Ok(());
                 }
             }
         }
+    };
 
-        // Dessiner les robots
-        for (i, robot) in self.robots.iter().enumerate() {
-            let screen_x = self.map_offset_x + robot.x as f32 * self.cell_size + self.cell_size / 2.0;
-            let screen_y = self.map_offset_y + robot.y as f32 * self.cell_size + self.cell_size / 2.0;
+    disable_raw_mode().expect("Failed to disable raw mode");
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)
+        .expect("Failed to leave alternate screen");
+    terminal.show_cursor().expect("Failed to show cursor");
 
-            let robot_color = match robot.robot_type {
-                RobotType::Explorer => Color::from_rgba(50, 255, 50, 255),
-                RobotType::Analyzer => Color::from_rgba(50, 150, 255, 255),
-                RobotType::Harvester => Color::from_rgba(255, 180, 50, 255),
-                RobotType::Scout => Color::from_rgba(255, 50, 255, 255),
-            };
-
-            let robot_radius = if Some(i) == self.selected_robot {
-                self.cell_size * 0.4
-            } else {
-                self.cell_size * 0.35
-            };
-
-            // Robot principal
-            draw_circle(screen_x, screen_y, robot_radius, robot_color);
-
-            // Bordure pour robot sélectionné
-            if Some(i) == self.selected_robot {
-                draw_circle_lines(screen_x, screen_y, robot_radius + 2.0, 3.0, WHITE);
-
-                // Rayon de communication
-                draw_circle_lines(screen_x, screen_y,
-                                  robot.communication_range as f32 * self.cell_size,
-                                  1.0, Color::from_rgba(255, 255, 255, 80));
-            }
-
-            // ID du robot
-            let font_size = (self.cell_size * 0.7).max(12.0);
-            let text = robot.id.to_string();
-            let text_size = measure_text(&text, None, font_size as u16, 1.0);
-            draw_text(&text,
-                      screen_x - text_size.width / 2.0,
-                      screen_y + text_size.height / 4.0,
-                      font_size, WHITE);
-
-            // Barre d'énergie
-            if self.show_energy && robot.is_operational() {
-                let energy_ratio = robot.energy as f32 / robot.max_energy as f32;
-                let bar_width = self.cell_size * 0.8;
-                let bar_height = (self.cell_size * 0.1).max(3.0);
-                let bar_x = screen_x - bar_width / 2.0;
-                let bar_y = screen_y - self.cell_size / 2.0 - 12.0;
-
-                // Fond de la barre
-                draw_rectangle(bar_x, bar_y, bar_width, bar_height, DARKGRAY);
-
-                // Barre d'énergie
-                let energy_color = if energy_ratio > 0.6 { GREEN }
-                else if energy_ratio > 0.3 { YELLOW }
-                else { RED };
-
-                draw_rectangle(bar_x, bar_y, bar_width * energy_ratio, bar_height, energy_color);
-
-                // Bordure de la barre
-                draw_rectangle_lines(bar_x, bar_y, bar_width, bar_height, 1.0, WHITE);
-            }
-        }
-
-        // Panneau d'informations (à droite)
-        let panel_width = 350.0;
-        let panel_x = screen_width() - panel_width;
-        let panel_height = screen_height() - 20.0;
-
-        // Fond du panneau
-        draw_rectangle(panel_x, 10.0, panel_width, panel_height, Color::from_rgba(20, 20, 30, 200));
-        draw_rectangle_lines(panel_x, 10.0, panel_width, panel_height, 2.0, WHITE);
-
-        let mut y_pos = 40.0;
-
-        // Titre du panneau
-        draw_text("📊 TABLEAU DE BORD", panel_x + 15.0, y_pos, 22.0, YELLOW);
-        y_pos += 40.0;
-
-        // Statistiques générales
-        draw_rectangle(panel_x + 10.0, y_pos - 5.0, panel_width - 20.0, 80.0, Color::from_rgba(30, 30, 40, 150));
-        draw_text("STATISTIQUES", panel_x + 15.0, y_pos + 15.0, 18.0, SKYBLUE);
-        y_pos += 35.0;
-
-        let stats = self.engine.get_statistics();
-        draw_text(&format!("🗺️ Zones explorées: {}", stats.total_exploration),
-                  panel_x + 15.0, y_pos, 16.0, WHITE);
-        y_pos += 25.0;
-
-        let operational = self.robots.iter().filter(|r| r.is_operational()).count();
-        draw_text(&format!("🤖 Robots actifs: {}/{}", operational, self.robots.len()),
-                  panel_x + 15.0, y_pos, 16.0, WHITE);
-        y_pos += 40.0;
-
-        // Section robots
-        draw_rectangle(panel_x + 10.0, y_pos - 5.0, panel_width - 20.0, 200.0, Color::from_rgba(30, 30, 40, 150));
-        draw_text("🤖 ROBOTS", panel_x + 15.0, y_pos + 15.0, 18.0, SKYBLUE);
-        y_pos += 35.0;
-
-        for (i, robot) in self.robots.iter().enumerate() {
-            let is_selected = Some(i) == self.selected_robot;
-            let type_color = match robot.robot_type {
-                RobotType::Explorer => GREEN,
-                RobotType::Analyzer => BLUE,
-                RobotType::Harvester => ORANGE,
-                RobotType::Scout => MAGENTA,
-            };
-
-            let text_color = if is_selected { YELLOW } else { type_color };
-            let prefix = if is_selected { "► " } else { "  " };
-
-            draw_text(&format!("{}Robot {} ({})", prefix, robot.id, robot.robot_type.name()),
-                      panel_x + 15.0, y_pos, 15.0, text_color);
-            y_pos += 20.0;
-
-            if is_selected {
-                draw_text(&format!("   Pos: ({}, {}) | État: {:?}",
-                                   robot.x, robot.y, robot.behavior.get_current_state()),
-                          panel_x + 20.0, y_pos, 13.0, LIGHTGRAY);
-                y_pos += 16.0;
-
-                draw_text(&format!("   Énergie: {}/{} | Inventaire: {}",
-                                   robot.energy, robot.max_energy, robot.inventory.len()),
-                          panel_x + 20.0, y_pos, 13.0, LIGHTGRAY);
-                y_pos += 20.0;
-            }
-        }
-
-        // Légende
-        y_pos = screen_height() - 180.0;
-        draw_rectangle(panel_x + 10.0, y_pos - 5.0, panel_width - 20.0, 160.0, Color::from_rgba(30, 30, 40, 150));
-        draw_text("🗺️ LÉGENDE", panel_x + 15.0, y_pos + 15.0, 18.0, SKYBLUE);
-        y_pos += 35.0;
-
-        let legend = [
-            ("💎 Minéraux (M)", Color::from_rgba(100, 200, 255, 255)),
-            ("⚡ Énergie (E)", Color::from_rgba(255, 100, 100, 255)),
-            ("⭐ Intérêt (!)", Color::from_rgba(255, 255, 100, 255)),
-            ("🪨 Roche (#)", Color::from_rgba(120, 120, 120, 255)),
-            ("👁️ Exploré (·)", Color::from_rgba(70, 70, 80, 255)),
-            ("🚫 Obstacle (X)", Color::from_rgba(80, 40, 20, 255)),
-        ];
-
-        for (name, color) in &legend {
-            draw_rectangle(panel_x + 15.0, y_pos - 8.0, 15.0, 15.0, *color);
-            draw_rectangle_lines(panel_x + 15.0, y_pos - 8.0, 15.0, 15.0, 1.0, WHITE);
-            draw_text(name, panel_x + 40.0, y_pos, 14.0, WHITE);
-            y_pos += 22.0;
-        }
+    match result {
+        Ok(()) => println!("Simulation stopped by user"),
+        Err(e) => eprintln!("Simulation error: {}", e),
     }
 }
 
-#[macroquad::main("EREEA Simulation")]
-async fn main() {
-    request_new_screen_size(1600.0, 1000.0);
+fn draw_tui(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    map: &Map,
+    robots: &[Robot],
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::simulation::visualization::MapVisualizer;
 
-    let mut game = GameState::new();
+    terminal.draw(|f| {
+        let app = crate::simulation::visualization::App::new(map, robots);
+        MapVisualizer::ui(f, &app);
+    })?;
 
-    loop {
-        game.update();
-        game.draw();
-        next_frame().await;
+    Ok(())
+}
+fn schedule_robot_start_times(robot_count: usize) -> Vec<Instant> {
+    let mut start_times = Vec::new();
+    for i in 0..robot_count {
+        start_times.push(Instant::now() + Duration::from_millis(i as u64 * 1000));
     }
+    start_times
 }
