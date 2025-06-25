@@ -10,11 +10,11 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Config {
-        let seed: u64 = Self::prompt_with_default("Seed", 42);
-        let map_height: usize = Self::prompt_with_default("Map Height", 10);
-        let map_width: usize = Self::prompt_with_default("Map Width", 10);
-        let robots_count: usize = Self::prompt_with_default("Robots Count", 5);
-        
+        let seed: u64 = 15;
+        let map_height= 20;
+        let map_width = 20;
+        let robots_count = 5;
+
         Config {
             map_height,
             map_width,
