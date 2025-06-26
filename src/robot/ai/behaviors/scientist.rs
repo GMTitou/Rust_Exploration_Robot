@@ -1,8 +1,8 @@
-use crate::simulation::entities::{Map, Station};
-use crate::simulation::robot_ai::behavior::RobotBehavior;
-use crate::simulation::robot_ai::robot::Robot;
-use crate::simulation::robot_ai::types::{AnalysisType, AnalyzeTask, Task, TaskType};
-use crate::simulation::robot_ai::utils::SearchUtils;
+use crate::maps::entities::{Map, Station};
+use crate::robot::ai::behavior::RobotBehavior;
+use crate::robot::ai::tasks::{AnalysisType, AnalyzeTask, ExploreTask, Task, TaskType};
+use crate::robot::ai::utils::SearchUtils;
+use crate::robot::core::robot::Robot;
 
 pub struct ScientistBehavior;
 
@@ -29,7 +29,7 @@ impl RobotBehavior for ScientistBehavior {
 
         if let Some(exploration_target) = self.find_systematic_exploration_target(robot, map) {
             return Some(Task {
-                task_type: TaskType::Explore(crate::simulation::robot_ai::types::ExploreTask {
+                task_type: TaskType::Explore(ExploreTask {
                     target_area: exploration_target,
                     radius: 3,
                 }),

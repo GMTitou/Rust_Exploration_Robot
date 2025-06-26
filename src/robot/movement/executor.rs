@@ -1,7 +1,8 @@
-use crate::simulation::entities::{Map, Station};
-use crate::simulation::robot_ai::pathfinding::Pathfinder;
-use crate::simulation::robot_ai::robot::Robot;
-use crate::simulation::robot_ai::types::{AnalyzeTask, ExploreTask, HarvestTask, RobotState};
+use crate::maps::entities::{Map, Station};
+use crate::robot::ai::tasks::{AnalyzeTask, ExploreTask, HarvestTask};
+use crate::robot::core::robot::Robot;
+use crate::robot::core::types::RobotState;
+use crate::robot::movement::pathfinding::Pathfinder;
 
 pub struct Executor;
 
@@ -83,7 +84,7 @@ impl Executor {
                 .resources
                 .get(&target_pos)
                 .map(|(resource_type, _)| {
-                    *resource_type == crate::simulation::entities::ResourceType::Energy
+                    *resource_type == crate::maps::entities::ResourceType::Energy
                 })
                 .unwrap_or(false);
             if should_collect {

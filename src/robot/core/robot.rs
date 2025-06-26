@@ -1,9 +1,10 @@
-use crate::simulation::entities::{Map, ResourceType, Station};
-use crate::simulation::map::TerrainType;
-use crate::simulation::robot_ai::behavior::RobotBehavior;
-use crate::simulation::robot_ai::executor::Executor;
-use crate::simulation::robot_ai::pathfinding::Pathfinder;
-use crate::simulation::robot_ai::types::{Direction, RobotState, RobotType, Task, TaskType};
+use crate::maps::entities::{Map, ResourceType, Station};
+use crate::maps::terrain::TerrainType;
+use crate::robot::ai::behavior::RobotBehavior;
+use crate::robot::ai::tasks::{Task, TaskType};
+use crate::robot::core::types::{Direction, RobotState, RobotType};
+use crate::robot::movement::executor::Executor;
+use crate::robot::movement::pathfinding::Pathfinder;
 
 pub struct Robot {
     pub id: usize,
@@ -18,7 +19,7 @@ pub struct Robot {
 
 impl Robot {
     pub fn new(id: usize, robot_type: RobotType, x: usize, y: usize, energy: u32) -> Self {
-        let behavior = crate::simulation::robot_ai::behavior::create_behavior(&robot_type);
+        let behavior = crate::robot::ai::behavior::create_behavior(&robot_type);
         Self {
             id,
             robot_type,

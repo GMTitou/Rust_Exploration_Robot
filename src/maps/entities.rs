@@ -1,4 +1,3 @@
-use crate::simulation::robot_ai::robot::Robot;
 use noise::Perlin;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -145,7 +144,7 @@ impl Station {
         robot_position == self.position()
     }
 
-    pub fn recharge_robot(&mut self, robot: &mut Robot) -> Result<u32, &'static str> {
+    pub fn recharge_robot(&mut self, robot: &mut crate::robot::core::robot::Robot) -> Result<u32, &'static str> {
         let energy_available = self.get_resource_amount(&ResourceType::Energy);
         if energy_available == 0 {
             return Err("No energy available for recharging");

@@ -1,4 +1,4 @@
-use crate::simulation::entities::{Map, ResourceType};
+use crate::maps::entities::{Map, ResourceType};
 
 pub struct SearchUtils;
 
@@ -50,11 +50,11 @@ impl SearchUtils {
                 false
             }
         })
-        .and_then(|(x, y)| {
-            map.resources
-                .get(&(x, y))
-                .map(|(resource_type, _)| ((x, y), resource_type.clone()))
-        })
+            .and_then(|(x, y)| {
+                map.resources
+                    .get(&(x, y))
+                    .map(|(resource_type, _)| ((x, y), resource_type.clone()))
+            })
     }
 
     pub fn find_nearest_unexplored(

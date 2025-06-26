@@ -1,6 +1,6 @@
-use crate::simulation::entities::Map;
-use crate::simulation::map::TerrainType;
-use crate::simulation::robot_ai::types::Direction;
+use crate::maps::entities::Map;
+use crate::maps::terrain::TerrainType;
+use crate::robot::core::types::Direction;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 

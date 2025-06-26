@@ -1,8 +1,8 @@
-use crate::simulation::entities::{Map, Station};
-use crate::simulation::robot_ai::behavior::RobotBehavior;
-use crate::simulation::robot_ai::robot::Robot;
-use crate::simulation::robot_ai::types::{ExploreTask, Task, TaskType};
-use crate::simulation::robot_ai::utils::SearchUtils;
+use crate::maps::entities::{Map, Station};
+use crate::robot::ai::behavior::RobotBehavior;
+use crate::robot::ai::tasks::{ExploreTask, Task, TaskType};
+use crate::robot::ai::utils::SearchUtils;
+use crate::robot::core::robot::Robot;
 
 pub struct ExplorerBehavior;
 

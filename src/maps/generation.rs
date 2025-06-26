@@ -1,30 +1,11 @@
-use crate::simulation::entities::{Map, ResourceType};
+use crate::maps::entities::{Map, ResourceType};
+use crate::maps::terrain::TerrainType;
 use noise::{NoiseFn, Perlin};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TerrainType {
-    Plain = 0,
-    Hill = 1,
-    Mountain = 2,
-    Canyon = 3,
-}
-
-impl From<u8> for TerrainType {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => TerrainType::Plain,
-            1 => TerrainType::Hill,
-            2 => TerrainType::Mountain,
-            3 => TerrainType::Canyon,
-            _ => TerrainType::Plain,
-        }
-    }
-}
 
 pub struct MapConstants {
     pub noise_frequency: f64,
@@ -95,10 +76,8 @@ impl Map {
                     TerrainType::Plain as u8
                 } else if normalized < 0.7 {
                     TerrainType::Hill as u8
-                } else if normalized < 0.85 {
-                    TerrainType::Mountain as u8
                 } else {
-                    TerrainType::Canyon as u8
+                    TerrainType::Mountain as u8
                 };
 
                 self.terrain[y][x] = terrain_type;
@@ -118,11 +97,7 @@ impl Map {
                 let ny = y as f64 * constants.noise_frequency * 1.5;
                 let noise_val = (resource_noise.get([nx, ny]) + 1.0) / 2.0;
 
-                if noise_val > constants.scientific_threshold {
-                    let amount = rng.random_range(10..=constants.max_resource_amount);
-                    self.resources
-                        .insert((x, y), (ResourceType::Energy, amount));
-                } else if noise_val > constants.mineral_threshold {
+                if noise_val > constants.mineral_threshold {
                     let amount = rng.random_range(20..=constants.max_resource_amount);
                     self.resources
                         .insert((x, y), (ResourceType::Mineral, amount));
@@ -132,20 +107,6 @@ impl Map {
                         .insert((x, y), (ResourceType::Energy, amount));
                 }
             }
-        }
-    }
-}
-
-impl TerrainType {
-    pub fn is_traversable(&self) -> bool {
-        matches!(self, TerrainType::Plain | TerrainType::Hill)
-    }
-
-    pub fn movement_cost(&self) -> u32 {
-        match self {
-            TerrainType::Plain => 1,
-            TerrainType::Hill => 2,
-            TerrainType::Mountain | TerrainType::Canyon => 0,
         }
     }
 }

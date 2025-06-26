@@ -1,5 +1,3 @@
-use std::io::{self, Write};
-
 #[derive(Debug)]
 pub struct Config {
     pub seed: u64,
@@ -10,8 +8,8 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Config {
-        let seed: u64 = 15;
-        let map_height= 20;
+        let seed = 15;
+        let map_height = 20;
         let map_width = 20;
         let robots_count = 5;
 

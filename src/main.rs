@@ -1,17 +1,17 @@
 mod config;
-mod simulation;
+mod maps;
+mod robot;
 
-use crate::simulation::entities::{Map, Station};
-use crate::simulation::robot_ai::robot::Robot;
-use crate::simulation::robot_ai::types::RobotType;
+use crate::maps::{Map, Station};
+use crate::robot::{Robot, RobotType};
 
 use config::Config;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -41,7 +41,7 @@ async fn start_simulation(config: Config) {
     let mut map = Map::new(config.map_width, config.map_height, config.seed);
     let mut station = Station::new(config.map_width / 2, config.map_height / 2);
 
-    station.receive_resource(crate::simulation::entities::ResourceType::Energy, 10000);
+    station.receive_resource(crate::maps::entities::ResourceType::Energy, 10000);
 
     let mut robots = Vec::new();
     for i in 0..config.robots_count {
@@ -117,15 +117,16 @@ fn draw_tui(
     map: &Map,
     robots: &[Robot],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::simulation::visualization::MapVisualizer;
+    use crate::maps::visualization::MapVisualizer;
 
     terminal.draw(|f| {
-        let app = crate::simulation::visualization::App::new(map, robots);
+        let app = crate::maps::visualization::App::new(map, robots);
         MapVisualizer::ui(f, &app);
     })?;
 
     Ok(())
 }
+
 fn schedule_robot_start_times(robot_count: usize) -> Vec<Instant> {
     let mut start_times = Vec::new();
     for i in 0..robot_count {
